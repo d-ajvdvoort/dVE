@@ -1,472 +1,372 @@
-const ValidationRule = require('../models/ValidationRule');
-const FileMetadata = require('../models/FileMetadata');
-const fs = require('fs');
-const path = require('path');
-
 /**
  * Validation Service
- * Handles validation of data against ruleset library
+ * Provides validation functionality for the dVeracity Verification Engine
  */
+const { ValidationRule, ReferenceData } = require('../models');
+
 class ValidationService {
   /**
-   * Validate data against rules
-   * @param {Array} data - Data to validate
-   * @param {Array} rules - Validation rules to apply
-   * @returns {Object} - Validation results
+   * Load validation rules for a schema
+   * @param {string} schemaId - ID of the schema
+   * @returns {Promise<Array>} - Validation rules
    */
-  async validateData(data, rules) {
-    const results = {
-      isValid: true,
-      errors: [],
-      warnings: [],
-      info: [],
-      fieldResults: {}
-    };
-    
-    // Process each rule
-    for (const rule of rules) {
-      const validationResult = await this.applyRule(data, rule);
-      
-      // Aggregate results
-      if (validationResult.issues.length > 0) {
-        if (rule.severity === 'Error') {
-          results.isValid = false;
-          results.errors.push(...validationResult.issues);
-        } else if (rule.severity === 'Warning') {
-          results.warnings.push(...validationResult.issues);
-        } else {
-          results.info.push(...validationResult.issues);
-        }
-        
-        // Track field-level results
-        rule.targetFields.forEach(field => {
-          if (!results.fieldResults[field]) {
-            results.fieldResults[field] = {
-              errors: [],
-              warnings: [],
-              info: []
-            };
-          }
-          
-          if (rule.severity === 'Error') {
-            results.fieldResults[field].errors.push(...validationResult.issues);
-          } else if (rule.severity === 'Warning') {
-            results.fieldResults[field].warnings.push(...validationResult.issues);
-          } else {
-            results.fieldResults[field].info.push(...validationResult.issues);
-          }
-        });
-      }
-    }
-    
-    return results;
-  }
-  
-  /**
-   * Apply a validation rule to data
-   * @param {Array} data - Data to validate
-   * @param {Object} rule - Validation rule to apply
-   * @returns {Object} - Validation result for this rule
-   */
-  async applyRule(data, rule) {
-    const result = {
-      ruleId: rule._id,
-      ruleName: rule.name,
-      ruleType: rule.type,
-      issues: []
-    };
-    
+  async loadValidationRules(schemaId) {
     try {
-      switch (rule.type) {
-        case 'DataType':
-          this.validateDataType(data, rule, result);
-          break;
-        case 'Completeness':
-          this.validateCompleteness(data, rule, result);
-          break;
-        case 'FieldLength':
-          this.validateFieldLength(data, rule, result);
-          break;
-        case 'AllowedValue':
-          this.validateAllowedValue(data, rule, result);
-          break;
-        case 'Format':
-          this.validateFormat(data, rule, result);
-          break;
-        case 'Timestamp':
-          this.validateTimestamp(data, rule, result);
-          break;
-        case 'Uniqueness':
-          this.validateUniqueness(data, rule, result);
-          break;
-        case 'ReferentialIntegrity':
-          await this.validateReferentialIntegrity(data, rule, result);
-          break;
-        case 'Custom':
-          await this.executeCustomValidation(data, rule, result);
-          break;
-        default:
-          result.issues.push(`Unknown rule type: ${rule.type}`);
-      }
-    } catch (error) {
-      console.error(`Error applying rule ${rule.name}:`, error);
-      result.issues.push(`Error applying rule: ${error.message}`);
-    }
-    
-    return result;
-  }
-  
-  /**
-   * Validate data types
-   */
-  validateDataType(data, rule, result) {
-    const { targetFields, configuration } = rule;
-    const expectedTypes = configuration.get('expectedTypes') || {};
-    
-    data.forEach((row, index) => {
-      targetFields.forEach(field => {
-        if (row[field] !== undefined) {
-          const value = row[field];
-          const expectedType = expectedTypes[field];
-          
-          if (expectedType) {
-            let isValid = true;
-            
-            switch (expectedType) {
-              case 'number':
-                isValid = !isNaN(Number(value));
-                break;
-              case 'integer':
-                isValid = Number.isInteger(Number(value));
-                break;
-              case 'string':
-                isValid = typeof value === 'string';
-                break;
-              case 'boolean':
-                isValid = typeof value === 'boolean' || value === 'true' || value === 'false';
-                break;
-              case 'date':
-                isValid = !isNaN(Date.parse(value));
-                break;
-            }
-            
-            if (!isValid) {
-              result.issues.push(`Row ${index + 1}: Field '${field}' has invalid type. Expected ${expectedType}, got ${typeof value}`);
-            }
-          }
-        }
-      });
-    });
-  }
-  
-  /**
-   * Validate completeness (required fields)
-   */
-  validateCompleteness(data, rule, result) {
-    const { targetFields } = rule;
-    
-    data.forEach((row, index) => {
-      targetFields.forEach(field => {
-        if (row[field] === undefined || row[field] === null || row[field] === '') {
-          result.issues.push(`Row ${index + 1}: Required field '${field}' is missing or empty`);
-        }
-      });
-    });
-  }
-  
-  /**
-   * Validate field length
-   */
-  validateFieldLength(data, rule, result) {
-    const { targetFields, configuration } = rule;
-    const minLengths = configuration.get('minLengths') || {};
-    const maxLengths = configuration.get('maxLengths') || {};
-    
-    data.forEach((row, index) => {
-      targetFields.forEach(field => {
-        if (row[field] !== undefined && typeof row[field] === 'string') {
-          const value = row[field];
-          const minLength = minLengths[field];
-          const maxLength = maxLengths[field];
-          
-          if (minLength !== undefined && value.length < minLength) {
-            result.issues.push(`Row ${index + 1}: Field '${field}' is too short. Min length: ${minLength}, actual: ${value.length}`);
-          }
-          
-          if (maxLength !== undefined && value.length > maxLength) {
-            result.issues.push(`Row ${index + 1}: Field '${field}' is too long. Max length: ${maxLength}, actual: ${value.length}`);
-          }
-        }
-      });
-    });
-  }
-  
-  /**
-   * Validate allowed values
-   */
-  validateAllowedValue(data, rule, result) {
-    const { targetFields, configuration } = rule;
-    const allowedValues = configuration.get('allowedValues') || {};
-    
-    data.forEach((row, index) => {
-      targetFields.forEach(field => {
-        if (row[field] !== undefined) {
-          const value = row[field];
-          const allowed = allowedValues[field];
-          
-          if (Array.isArray(allowed) && !allowed.includes(value)) {
-            result.issues.push(`Row ${index + 1}: Field '${field}' has invalid value. Allowed values: ${allowed.join(', ')}`);
-          }
-        }
-      });
-    });
-  }
-  
-  /**
-   * Validate format (regex patterns)
-   */
-  validateFormat(data, rule, result) {
-    const { targetFields, configuration } = rule;
-    const patterns = configuration.get('patterns') || {};
-    
-    data.forEach((row, index) => {
-      targetFields.forEach(field => {
-        if (row[field] !== undefined && typeof row[field] === 'string') {
-          const value = row[field];
-          const pattern = patterns[field];
-          
-          if (pattern) {
-            const regex = new RegExp(pattern);
-            if (!regex.test(value)) {
-              result.issues.push(`Row ${index + 1}: Field '${field}' has invalid format. Expected pattern: ${pattern}`);
-            }
-          }
-        }
-      });
-    });
-  }
-  
-  /**
-   * Validate timestamps
-   */
-  validateTimestamp(data, rule, result) {
-    const { targetFields, configuration } = rule;
-    const comparisons = configuration.get('comparisons') || [];
-    
-    data.forEach((row, index) => {
-      // Check each field is a valid date
-      targetFields.forEach(field => {
-        if (row[field] !== undefined) {
-          const timestamp = new Date(row[field]);
-          if (isNaN(timestamp.getTime())) {
-            result.issues.push(`Row ${index + 1}: Field '${field}' has invalid timestamp format`);
-          }
-        }
-      });
-      
-      // Check timestamp comparisons (e.g., startDate < endDate)
-      comparisons.forEach(comparison => {
-        const { field1, field2, operator } = comparison;
-        
-        if (row[field1] !== undefined && row[field2] !== undefined) {
-          const date1 = new Date(row[field1]);
-          const date2 = new Date(row[field2]);
-          
-          if (!isNaN(date1.getTime()) && !isNaN(date2.getTime())) {
-            let isValid = true;
-            
-            switch (operator) {
-              case '<':
-                isValid = date1 < date2;
-                break;
-              case '<=':
-                isValid = date1 <= date2;
-                break;
-              case '>':
-                isValid = date1 > date2;
-                break;
-              case '>=':
-                isValid = date1 >= date2;
-                break;
-              case '==':
-                isValid = date1.getTime() === date2.getTime();
-                break;
-            }
-            
-            if (!isValid) {
-              result.issues.push(`Row ${index + 1}: Timestamp comparison failed: ${field1} ${operator} ${field2}`);
-            }
-          }
-        }
-      });
-    });
-  }
-  
-  /**
-   * Validate uniqueness
-   */
-  validateUniqueness(data, rule, result) {
-    const { targetFields } = rule;
-    
-    targetFields.forEach(field => {
-      const valueMap = new Map();
-      
-      data.forEach((row, index) => {
-        if (row[field] !== undefined) {
-          const value = row[field];
-          
-          if (valueMap.has(value)) {
-            result.issues.push(`Duplicate value found for field '${field}': '${value}' at rows ${valueMap.get(value) + 1} and ${index + 1}`);
-          } else {
-            valueMap.set(value, index);
-          }
-        }
-      });
-    });
-  }
-  
-  /**
-   * Validate referential integrity
-   */
-  async validateReferentialIntegrity(data, rule, result) {
-    const { configuration } = rule;
-    const references = configuration.get('references') || [];
-    
-    for (const reference of references) {
-      const { sourceField, targetModel, targetField } = reference;
-      
-      // Get all unique values from the source field
-      const uniqueValues = new Set();
-      data.forEach(row => {
-        if (row[sourceField] !== undefined) {
-          uniqueValues.add(row[sourceField]);
-        }
-      });
-      
-      // Check if values exist in the target model
-      const values = Array.from(uniqueValues);
-      const mongoose = require('mongoose');
-      const Model = mongoose.model(targetModel);
-      
-      const query = {};
-      query[targetField] = { $in: values };
-      
-      const existingValues = await Model.find(query).select(targetField);
-      const existingSet = new Set(existingValues.map(doc => doc[targetField]));
-      
-      // Find missing references
-      data.forEach((row, index) => {
-        if (row[sourceField] !== undefined && !existingSet.has(row[sourceField])) {
-          result.issues.push(`Row ${index + 1}: Field '${sourceField}' references non-existent value '${row[sourceField]}' in ${targetModel}.${targetField}`);
-        }
-      });
-    }
-  }
-  
-  /**
-   * Execute custom validation function
-   */
-  async executeCustomValidation(data, rule, result) {
-    const { validationFunction } = rule;
-    
-    if (validationFunction) {
-      try {
-        // Create a function from the string
-        const validateFn = new Function('data', 'result', validationFunction);
-        await validateFn(data, result);
-      } catch (error) {
-        console.error('Error executing custom validation function:', error);
-        result.issues.push(`Custom validation error: ${error.message}`);
-      }
-    } else {
-      result.issues.push('Custom validation rule has no validation function');
-    }
-  }
-  
-  /**
-   * Process a file with validation rules
-   * @param {string} fileId - ID of the file to validate
-   * @returns {Promise<Object>} - Validation results
-   */
-  async validateFile(fileId) {
-    try {
-      // Get file metadata
-      const fileMetadata = await FileMetadata.findOne({ fileId });
-      if (!fileMetadata) {
-        throw new Error(`File with ID ${fileId} not found`);
-      }
-      
-      // Check if file has been mapped or matched
-      const dataLocation = fileMetadata.datasetProperties?.matchedLocation || 
-                          fileMetadata.datasetProperties?.mappedLocation;
-      
-      if (!dataLocation || !fs.existsSync(dataLocation)) {
-        throw new Error(`Processed data file not found for file ID ${fileId}`);
-      }
-      
-      // Read data
-      const data = JSON.parse(fs.readFileSync(dataLocation, 'utf8'));
-      
-      // Get schema ID from file metadata or mapping
-      const schemaId = fileMetadata.schemaId;
-      if (!schemaId) {
-        throw new Error(`Schema ID not found for file ID ${fileId}`);
-      }
-      
-      // Get validation rules for this schema
       const rules = await ValidationRule.find({
-        targetSchema: schemaId,
+        schemaId,
         active: true
-      });
+      }).sort({ severity: 1 });
       
-      if (rules.length === 0) {
-        console.warn(`No validation rules found for schema ${schemaId}`);
-      }
-      
-      // Validate data against rules
-      const validationResults = await this.validateData(data, rules);
-      
-      // Save validation results to file
-      const validationFilePath = path.join(
-        path.dirname(dataLocation),
-        `${fileId}_validation.json`
+      return rules;
+    } catch (error) {
+      console.error('Failed to load validation rules:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new validation rule
+   * @param {Object} ruleData - Rule data
+   * @returns {Promise<Object>} - Created rule
+   */
+  async createValidationRule(ruleData) {
+    try {
+      const rule = new ValidationRule(ruleData);
+      await rule.save();
+      return rule;
+    } catch (error) {
+      console.error('Failed to create validation rule:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a validation rule
+   * @param {string} ruleId - ID of the rule to update
+   * @param {Object} updateData - Updated rule data
+   * @returns {Promise<Object>} - Updated rule
+   */
+  async updateValidationRule(ruleId, updateData) {
+    try {
+      const rule = await ValidationRule.findByIdAndUpdate(
+        ruleId,
+        { ...updateData, updatedAt: new Date() },
+        { new: true }
       );
       
-      fs.writeFileSync(validationFilePath, JSON.stringify(validationResults, null, 2));
-      
-      // Update file metadata
-      fileMetadata.status = validationResults.isValid ? 'verified' : 'error';
-      fileMetadata.validationResults = {
-        isValid: validationResults.isValid,
-        errors: validationResults.errors,
-        warnings: validationResults.warnings,
-        timestamp: new Date()
-      };
-      await fileMetadata.save();
-      
-      return {
-        success: true,
-        fileId,
-        isValid: validationResults.isValid,
-        errorCount: validationResults.errors.length,
-        warningCount: validationResults.warnings.length,
-        infoCount: validationResults.info.length,
-        validationFilePath
-      };
-    } catch (error) {
-      console.error('Error validating file:', error);
-      
-      // Update file metadata with error status
-      if (fileId) {
-        const fileMetadata = await FileMetadata.findOne({ fileId });
-        if (fileMetadata) {
-          fileMetadata.status = 'error';
-          fileMetadata.processingStatus = 'failed';
-          await fileMetadata.save();
-        }
+      if (!rule) {
+        throw new Error(`Validation rule with ID ${ruleId} not found`);
       }
       
+      return rule;
+    } catch (error) {
+      console.error('Failed to update validation rule:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Delete a validation rule
+   * @param {string} ruleId - ID of the rule to delete
+   * @returns {Promise<Object>} - Deletion result
+   */
+  async deleteValidationRule(ruleId) {
+    try {
+      const result = await ValidationRule.findByIdAndDelete(ruleId);
+      
+      if (!result) {
+        throw new Error(`Validation rule with ID ${ruleId} not found`);
+      }
+      
+      return { success: true, message: 'Validation rule deleted successfully' };
+    } catch (error) {
+      console.error('Failed to delete validation rule:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Load reference data for validation
+   * @param {string} type - Type of reference data
+   * @param {string} code - Code of reference data (optional)
+   * @returns {Promise<Array|Object>} - Reference data
+   */
+  async loadReferenceData(type, code = null) {
+    try {
+      const query = { type, active: true };
+      
+      if (code) {
+        query.code = code;
+        return await ReferenceData.findOne(query);
+      }
+      
+      return await ReferenceData.find(query);
+    } catch (error) {
+      console.error('Failed to load reference data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create reference data
+   * @param {Object} referenceData - Reference data
+   * @returns {Promise<Object>} - Created reference data
+   */
+  async createReferenceData(referenceData) {
+    try {
+      const data = new ReferenceData(referenceData);
+      await data.save();
+      return data;
+    } catch (error) {
+      console.error('Failed to create reference data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update reference data
+   * @param {string} id - ID of the reference data to update
+   * @param {Object} updateData - Updated reference data
+   * @returns {Promise<Object>} - Updated reference data
+   */
+  async updateReferenceData(id, updateData) {
+    try {
+      const data = await ReferenceData.findByIdAndUpdate(
+        id,
+        { ...updateData, updatedAt: new Date() },
+        { new: true }
+      );
+      
+      if (!data) {
+        throw new Error(`Reference data with ID ${id} not found`);
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Failed to update reference data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete reference data
+   * @param {string} id - ID of the reference data to delete
+   * @returns {Promise<Object>} - Deletion result
+   */
+  async deleteReferenceData(id) {
+    try {
+      const result = await ReferenceData.findByIdAndDelete(id);
+      
+      if (!result) {
+        throw new Error(`Reference data with ID ${id} not found`);
+      }
+      
+      return { success: true, message: 'Reference data deleted successfully' };
+    } catch (error) {
+      console.error('Failed to delete reference data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate a value against a rule
+   * @param {Object} rule - Validation rule
+   * @param {*} value - Value to validate
+   * @returns {Promise<Object>} - Validation result
+   */
+  async validateValue(rule, value) {
+    try {
+      let isValid = false;
+      let message = '';
+      
+      switch (rule.ruleType) {
+        case 'dataType':
+          isValid = this._validateDataType(value, rule.parameters);
+          message = isValid ? 'Data type validation passed' : `Expected ${rule.parameters.get('type')}, got ${typeof value}`;
+          break;
+          
+        case 'range':
+          isValid = this._validateRange(value, rule.parameters);
+          message = isValid ? 'Range validation passed' : `Value outside allowed range [${rule.parameters.get('min')}, ${rule.parameters.get('max')}]`;
+          break;
+          
+        case 'required':
+          isValid = this._validateRequired(value);
+          message = isValid ? 'Required field validation passed' : 'Required field is missing or empty';
+          break;
+          
+        case 'uniqueness':
+          // Uniqueness validation requires context of all values, not implemented here
+          isValid = true;
+          message = 'Uniqueness validation not implemented for single value';
+          break;
+          
+        case 'pattern':
+          isValid = this._validatePattern(value, rule.parameters);
+          message = isValid ? 'Pattern validation passed' : `Value does not match pattern ${rule.parameters.get('pattern')}`;
+          break;
+          
+        case 'reference':
+          isValid = await this._validateReference(value, rule.parameters);
+          message = isValid ? 'Reference validation passed' : `Value not found in reference data of type ${rule.parameters.get('referenceType')}`;
+          break;
+          
+        case 'custom':
+          // Custom validation requires specific implementation
+          isValid = true;
+          message = 'Custom validation not implemented for single value';
+          break;
+          
+        default:
+          throw new Error(`Unknown rule type: ${rule.ruleType}`);
+      }
+      
+      return {
+        isValid,
+        message: isValid ? message : (rule.message || message)
+      };
+    } catch (error) {
+      console.error('Validation error:', error);
+      return {
+        isValid: false,
+        message: `Validation error: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Validate data type
+   * @private
+   * @param {*} value - Value to validate
+   * @param {Map} parameters - Validation parameters
+   * @returns {boolean} - Validation result
+   */
+  _validateDataType(value, parameters) {
+    const expectedType = parameters.get('type');
+    
+    if (!expectedType) {
+      return false;
+    }
+    
+    switch (expectedType.toLowerCase()) {
+      case 'string':
+        return typeof value === 'string';
+        
+      case 'number':
+        return typeof value === 'number' && !isNaN(value);
+        
+      case 'integer':
+        return Number.isInteger(value);
+        
+      case 'boolean':
+        return typeof value === 'boolean';
+        
+      case 'date':
+        return value instanceof Date && !isNaN(value) || 
+               (typeof value === 'string' && !isNaN(Date.parse(value)));
+        
+      case 'array':
+        return Array.isArray(value);
+        
+      case 'object':
+        return typeof value === 'object' && value !== null && !Array.isArray(value);
+        
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Validate range
+   * @private
+   * @param {*} value - Value to validate
+   * @param {Map} parameters - Validation parameters
+   * @returns {boolean} - Validation result
+   */
+  _validateRange(value, parameters) {
+    const min = parameters.get('min');
+    const max = parameters.get('max');
+    
+    if (typeof value !== 'number') {
+      return false;
+    }
+    
+    if (min !== undefined && value < min) {
+      return false;
+    }
+    
+    if (max !== undefined && value > max) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  /**
+   * Validate required
+   * @private
+   * @param {*} value - Value to validate
+   * @returns {boolean} - Validation result
+   */
+  _validateRequired(value) {
+    if (value === undefined || value === null) {
+      return false;
+    }
+    
+    if (typeof value === 'string' && value.trim() === '') {
+      return false;
+    }
+    
+    if (Array.isArray(value) && value.length === 0) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  /**
+   * Validate pattern
+   * @private
+   * @param {*} value - Value to validate
+   * @param {Map} parameters - Validation parameters
+   * @returns {boolean} - Validation result
+   */
+  _validatePattern(value, parameters) {
+    const pattern = parameters.get('pattern');
+    
+    if (!pattern || typeof value !== 'string') {
+      return false;
+    }
+    
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(value);
+    } catch (error) {
+      console.error('Invalid regex pattern:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Validate reference
+   * @private
+   * @param {*} value - Value to validate
+   * @param {Map} parameters - Validation parameters
+   * @returns {Promise<boolean>} - Validation result
+   */
+  async _validateReference(value, parameters) {
+    const referenceType = parameters.get('referenceType');
+    
+    if (!referenceType || !value) {
+      return false;
+    }
+    
+    try {
+      const referenceData = await this.loadReferenceData(referenceType, value);
+      return !!referenceData;
+    } catch (error) {
+      console.error('Reference validation error:', error);
+      return false;
     }
   }
 }
