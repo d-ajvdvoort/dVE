@@ -1,54 +1,77 @@
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-// Schema for reference data
-const referenceDataSchema = new mongoose.Schema({
+// Define the ReferenceData schema
+const ReferenceDataSchema = new Schema({
   type: {
     type: String,
     required: true,
-    enum: [
-      'EmissionInventoryType',
-      'EmissionCategoryType',
-      'EmissionScopeType',
-      'EmissionActivityCategory',
-      'EmissionActivityType'
-    ]
+    enum: ['emissionFactor', 'activityCategory', 'emissionScope', 'standard', 'location', 'unit'],
+    index: true
   },
   code: {
     type: String,
-    required: true
+    required: true,
+    trim: true,
+    index: true
   },
   name: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
-  description: String,
-  standard: {
-    type: String,
-    enum: [
-      'ISO-14061',
-      'GHG-Protocol',
-      'API-Compendium',
-      'LCFS',
-      'Technology',
-      'Ecosystems'
-    ]
+  description: {
+    type: String
   },
-  parentCode: String,
+  value: {
+    type: Number
+  },
+  unit: {
+    type: String
+  },
+  source: {
+    type: String
+  },
+  validFrom: {
+    type: Date
+  },
+  validTo: {
+    type: Date
+  },
   metadata: {
     type: Map,
-    of: String
+    of: Schema.Types.Mixed
+  },
+  parentCode: {
+    type: String,
+    index: true
+  },
+  standardId: {
+    type: String
   },
   active: {
     type: Boolean,
     default: true
+  },
+  createdBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
 }, {
   timestamps: true
 });
 
-// Compound index for type and code
-referenceDataSchema.index({ type: 1, code: 1 }, { unique: true });
+// Create compound index for type and code
+ReferenceDataSchema.index({ type: 1, code: 1 }, { unique: true });
 
-const ReferenceData = mongoose.model('ReferenceData', referenceDataSchema);
-
+// Create and export the ReferenceData model
+const ReferenceData = mongoose.model('ReferenceData', ReferenceDataSchema);
 module.exports = ReferenceData;

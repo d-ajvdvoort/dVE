@@ -1,52 +1,59 @@
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-// Schema for mapping configuration
-const mappingSchema = new mongoose.Schema({
+// Define the Mapping schema
+const MappingSchema = new Schema({
+  fileId: {
+    type: Schema.Types.ObjectId,
+    ref: 'FileMetadata',
+    required: true
+  },
   schemaId: {
     type: String,
-    required: true
+    required: true,
+    enum: ['EmissionData', 'ActivityData', 'ReferenceData']
   },
   columnMappings: {
     type: Map,
-    of: String,
-    required: true
+    of: String
   },
   assignedReferences: {
     type: Map,
     of: String
   },
   inferReferences: {
-    type: Map,
-    of: String
+    type: Boolean,
+    default: true
   },
   skipValidation: {
     type: Boolean,
     default: false
   },
-  // Schema properties extracted from target schema
-  schemaProperties: {
-    type: Map,
-    of: String
-  },
-  requiredProperties: [String],
-  foreignKeys: [{
-    field: String,
-    references: {
-      model: String,
-      field: String
-    }
-  }],
-  // Metadata
-  createdBy: String,
-  fileId: {
-    type: String,
-    ref: 'FileMetadata',
+  createdBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
     required: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  },
+  status: {
+    type: String,
+    enum: ['draft', 'applied', 'error'],
+    default: 'draft'
+  },
+  errorMessage: {
+    type: String
   }
 }, {
   timestamps: true
 });
 
-const Mapping = mongoose.model('Mapping', mappingSchema);
-
+// Create and export the Mapping model
+const Mapping = mongoose.model('Mapping', MappingSchema);
 module.exports = Mapping;

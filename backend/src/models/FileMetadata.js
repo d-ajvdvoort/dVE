@@ -1,20 +1,32 @@
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-const fileMetadataSchema = new mongoose.Schema({
+// Define the FileMetadata schema
+const FileMetadataSchema = new Schema({
+  originalName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  fileName: {
+    type: String,
+    required: true,
+    unique: true
+  },
   fileId: {
     type: String,
     required: true,
     unique: true
   },
-  originalName: {
+  mimeType: {
     type: String,
     required: true
   },
-  fileSize: {
+  size: {
     type: Number,
     required: true
   },
-  mimeType: {
+  path: {
     type: String,
     required: true
   },
@@ -23,70 +35,74 @@ const fileMetadataSchema = new mongoose.Schema({
     default: Date.now
   },
   uploadedBy: {
-    type: String,
-    required: true
-  },
-  filePath: {
-    type: String,
+    type: Schema.Types.ObjectId,
+    ref: 'User',
     required: true
   },
   status: {
     type: String,
-    enum: ['uploaded', 'processing', 'mapped', 'validated', 'verified', 'error'],
+    enum: ['uploaded', 'mapped', 'validated', 'verified', 'error'],
     default: 'uploaded'
   },
-  processingStatus: {
-    type: String,
-    enum: ['pending', 'in_progress', 'completed', 'failed'],
-    default: 'pending'
+  checksum: {
+    type: String
   },
-  // Compliance and access controls
-  contractId: String,
-  expirationDate: Date,
-  originator: String,
-  dataType: {
-    type: String,
-    enum: ['Public Domain Data', 'First Party Data', 'Second Party Data'],
-    default: 'First Party Data'
+  metadata: {
+    contractId: {
+      type: String
+    },
+    originator: {
+      type: String
+    },
+    dataType: {
+      type: String,
+      enum: ['Public Domain Data', 'First Party Data', 'Second Party Data'],
+      default: 'First Party Data'
+    },
+    securityClassification: {
+      type: String,
+      enum: ['Public', 'Private'],
+      default: 'Private'
+    },
+    personalData: {
+      type: String,
+      enum: ['No Personal Data', 'Personally Identifiable'],
+      default: 'No Personal Data'
+    },
+    exportClassification: {
+      type: String,
+      enum: ['Not-Technical Data', 'No License Required'],
+      default: 'Not-Technical Data'
+    }
   },
-  securityClassification: {
-    type: String,
-    enum: ['Public', 'Private'],
-    default: 'Private'
+  mappingId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Mapping'
   },
-  personalData: {
-    type: String,
-    enum: ['No Personal Data', 'Personally Identifiable'],
-    default: 'No Personal Data'
-  },
-  exportClassification: {
-    type: String,
-    enum: ['Not-Technical Data', 'No License Required'],
-    default: 'Not-Technical Data'
-  },
-  // Ancestry and validation lineage
-  ancestors: [{
-    type: String,
-    ref: 'FileMetadata'
-  }],
-  // Dataset properties
-  datasetProperties: {
-    fileSource: String,
-    sourceLocation: String,
-    extractedLocation: String,
-    mappedLocation: String
-  },
-  // Validation results
   validationResults: {
-    isValid: Boolean,
-    errors: [String],
-    warnings: [String],
-    timestamp: Date
+    isValid: {
+      type: Boolean
+    },
+    timestamp: {
+      type: Date
+    },
+    errors: [{
+      type: String
+    }],
+    warnings: [{
+      type: String
+    }]
+  },
+  verificationRecordId: {
+    type: String
+  },
+  blockchainTxId: {
+    type: String
   }
 }, {
   timestamps: true
 });
 
-const FileMetadata = mongoose.model('FileMetadata', fileMetadataSchema);
-
+// Create and export the FileMetadata model
+const FileMetadata = mongoose.model('FileMetadata', FileMetadataSchema);
 module.exports = FileMetadata;

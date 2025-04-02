@@ -1,51 +1,65 @@
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-// Schema for validation rules
-const validationRuleSchema = new mongoose.Schema({
+// Define the ValidationRule schema
+const ValidationRuleSchema = new Schema({
   name: {
     type: String,
-    required: true
-  },
-  type: {
-    type: String,
     required: true,
-    enum: [
-      'DataType',
-      'Completeness',
-      'FieldLength',
-      'AllowedValue',
-      'Format',
-      'Timestamp',
-      'Uniqueness',
-      'ReferentialIntegrity',
-      'Custom'
-    ]
+    trim: true
   },
-  description: String,
-  targetSchema: {
+  description: {
     type: String,
     required: true
   },
-  targetFields: [String],
-  configuration: {
-    type: Map,
-    of: mongoose.Schema.Types.Mixed
+  ruleType: {
+    type: String,
+    enum: ['dataType', 'range', 'required', 'uniqueness', 'pattern', 'reference', 'custom'],
+    required: true
   },
-  validationFunction: String, // For custom validation rules
+  targetField: {
+    type: String,
+    required: true
+  },
+  parameters: {
+    type: Map,
+    of: Schema.Types.Mixed
+  },
+  severity: {
+    type: String,
+    enum: ['error', 'warning', 'info'],
+    default: 'error'
+  },
+  message: {
+    type: String,
+    required: true
+  },
   active: {
     type: Boolean,
     default: true
   },
-  severity: {
+  schemaId: {
     type: String,
-    enum: ['Error', 'Warning', 'Info'],
-    default: 'Error'
+    required: true,
+    enum: ['EmissionData', 'ActivityData', 'ReferenceData']
   },
-  createdBy: String
+  createdBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
 }, {
   timestamps: true
 });
 
-const ValidationRule = mongoose.model('ValidationRule', validationRuleSchema);
-
+// Create and export the ValidationRule model
+const ValidationRule = mongoose.model('ValidationRule', ValidationRuleSchema);
 module.exports = ValidationRule;
