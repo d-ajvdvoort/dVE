@@ -1,0 +1,25 @@
+{
+  "name": "dve-blockchain",
+  "version": "0.1.0",
+  "description": "Blockchain integration for dVeracity Verification Engine",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@cardano-foundation/cardano-js-sdk": "^1.0.0",
+    "keri": "^1.0.0",
+    "midnight-sdk": "^0.1.0",
+    "web3": "^4.0.3",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "jest": "^29.6.4",
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "Apache-2.0"
+}
