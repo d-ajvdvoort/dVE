@@ -1,0 +1,14 @@
+name: Carbon Credit Verification
+on: [pull_request]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: codegpt/keri-audit@v2
+        with:
+          rust-version: '1.79'
+      - uses: midnight-network/deploy@beta
+        env:
+          DUST_KEY: ${{ secrets.DUST }}
